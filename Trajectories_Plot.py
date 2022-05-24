@@ -15,7 +15,7 @@ class PlotTrajectories:
 
     
     def __init__(self, ratdata, ratname):
-        """ Class for plotting the rat data. This works on a single rat group's data, or a few rat groups' data. 
+        """ Class for plotting the rat data. Written to compare pairs of Trajectory data
         Interacts with the Trajectories objects. 
         
         Parameters 
@@ -25,19 +25,20 @@ class PlotTrajectories:
         ratname : string or list
             Name(s) of the rat to be displayed on the plots. 
         """
-        if len(ratdata) == 1:
-            self.rat = [ratdata]
-            self.name = [ratname]
-        else: 
-            self.rat = ratdata           
+        if isinstance(ratdata, list): 
+            self.rat = ratdata
             self.name = ratname
+        else: 
+            # Raise Error? Idk how. 
+            self.rat = [ratdata]          
+            self.name = [ratname]
         
         # make the list of colors available
         self.farben = ['xkcd:slate grey', 'xkcd:deep green', 'xkcd:greyish green', 'xkcd:cool grey', 'xkcd:slate grey', 'xkcd:deep green', 'xkcd:greyish green', 'xkcd:cool grey']
         self.colors = ['xkcd:wine red', 'xkcd:grape', 'xkcd:dark lavender', 'xkcd:blueberry', 'xkcd:ocean blue', 'xkcd:turquoise', 'xkcd:light teal', 'xkcd:sage green', 'xkcd:yellow ochre', 'xkcd:pumpkin', 'xkcd:burnt umber', 'xkcd:reddish brown', 'xkcd:chocolate', 'xkcd:black', 'xkcd:charcoal', 'xkcd:steel grey', 'xkcd:cool grey', 'xkcd:pale grey','xkcd:light peach', 'xkcd:light salmon', 'xkcd:dark coral', 'xkcd:dark fuchsia']
 
 
-    def Plot(self, ptype = 'IPI', numtaps = 1000, psize = 100, window = 1000, titled = 'Default', savepath = False, alltapfile = False):
+    def Plot(self, ptype = 'IPI', numtaps = 1000, psize = 100, window = 1000, titled = 'Default', savepath = False, alltapfile = False, taps = [1000,-1000]):
         """ Returns a plot of the average 1st tap length and average IPI for each session. 
         
         Parameters 
@@ -58,7 +59,7 @@ class PlotTrajectories:
             self.Pi(titled, numtaps, savepath)
         
         elif ptype == "DoublePi" or ptype == "doublepi":
-            self.DoublePi(titled, numtaps, savepath)
+            self.DoublePi(titled, savepath, taps)
         
         elif ptype == "IntervalDist":
             self.IntervalDist(numtaps, alltapfile)
@@ -104,7 +105,7 @@ class PlotTrajectories:
         plt.show()
 
 
-    def DoublePi(self, titled, numtaps, savepath):
+    def DoublePi(self, titled, savepath, numtaps):
         """ Creates a donut pie chart & pie chart for the modes 
         
         Params

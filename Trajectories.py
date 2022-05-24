@@ -2,12 +2,13 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt 
 import math as ma
+import h5py as h5
 from time import time
 
 
 class Trajectory:
     
-    def __init__(self, Leftfilepath, Rightfilepath, target = False, interval = False, bound = 30):
+    def __init__(self, left = False, right = False, h5file = False, target = False, interval = False, bound = 30, startframe = 14, stopframe = 145):
         """ Class for single-hand trajectory data
         
         Params
@@ -38,19 +39,22 @@ class Trajectory:
         """
         
         # the initial csv has no headers, so create a list of column names (always identical between csv files) 
-        cols, usecols = self._create_column_names()
+        cols, usecols = self._create_column_names(startframe, stopframe)
         
-        # load in the Left hand data csv file to pandas 
-        Ldf = self._load_df(Leftfilepath, cols, usecols)
-        # load in the Right hand data csv file to pandas 
-        Rdf = self._load_df(Rightfilepath, cols, usecols)
+        if h5file: 
+            Ldf, Rdf = self._load_h5file(h5file, usecols, startframe, stopframe)
+        else:
+            # load in the Left hand data csv file to pandas 
+            Ldf = self._load_df(left, cols, usecols)
+            # load in the Right hand data csv file to pandas 
+            Rdf = self._load_df(right, cols, usecols)
         
-
-        # add the n in session
-        Ldf['n_sess'] = self._make_nsess(Ldf)
-        Ldf['n_sess'] = Ldf['n_sess'].astype('category')
-        Rdf['n_sess'] = self._make_nsess(Rdf)
-        Rdf['n_sess'] = Rdf['n_sess'].astype('category')
+            # THE H5 FILE LDF & RDF ALREADY HAVE NSESS. 
+            # add the n in session
+            Ldf['n_sess'] = self._make_nsess(Ldf)
+            Ldf['n_sess'] = Ldf['n_sess'].astype('category')
+            Rdf['n_sess'] = self._make_nsess(Rdf)
+            Rdf['n_sess'] = Rdf['n_sess'].astype('category')
         
 
         # create a dataframe with only rows that are within the target bounds
@@ -58,8 +62,7 @@ class Trajectory:
         # create a dataframe with only rows that are within the target bounds
         Rdf = self._within_X(Rdf, target, interval, bound)
         
-             
-
+            
         # preprocess the dataframe to remove any trial whose first 15 values weren't tracked.
         # Left hand
         Ldf = self._preprocess(Ldf) 
@@ -78,7 +81,7 @@ class Trajectory:
         self.Rdf.sort_index(axis=0, inplace=True) 
         
     
-    def _create_column_names(self):
+    def _create_column_names(self, start, stop):
         """ Internal Function. Create initial column names. 
         
         Params 
@@ -103,7 +106,7 @@ class Trajectory:
         #we run the loop again to specify the columns we'll want to keep
         xs = []
         ys = [] 
-        for i in range(14,145):
+        for i in range(start,stop):
             # add x_1 thru x_183 to the x array 
             xs.append(f'x_{i+1}')
             # add y_1 thru y_183 to the y array 
@@ -141,6 +144,93 @@ class Trajectory:
 
         return pd.read_csv(filepath, header = None, names = cols, dtype = typedictio, usecols = usecols) 
     
+    def _load_h5file(self, filepath, cols, start, stop):
+        """ Alternative loading h5 files instead of csv. """
+        # add "sess" to the usecols (b/c it is generic for csv's and h5's)
+        cols = cols + ["sess"]
+        rightratdata = []
+        leftratdata = []
+        with h5.File(filepath, 'r') as f:
+            # for each "sessfolder" ie. folder in the file, 
+            for sessfolder in f:
+                # if the subfolder "R_trajectories" is inside that folder
+                if "R_trajectories" in f[sessfolder]:
+                    target = f[sessfolder].attrs["Target"] # value
+                    sessnumber = int(sessfolder.split("_")[-1]) # value
+                    for trial in f[sessfolder]["R_trajectories"]:
+                        # Pull the Rxhand values from the h5 file
+                        Rxhand = f[sessfolder]["R_trajectories"][trial]["hand"]['x']
+                        # if the trial wasn't tracked, then add NaN to the end to have uniform length. 
+                        if len(Rxhand) < 182:
+                            Rxhand = [*Rxhand, *np.full(182-len(Rxhand), np.NaN)]
+                        # Cut the array based on user inputs, 
+                        Rxhand = Rxhand[start:stop] # numpy array
+
+                        # Pull the Ryhand values from the h5 file 
+                        Ryhand = f[sessfolder]["R_trajectories"][trial]["hand"]['y']
+                        # if the trial wasn't tracked, then add NaN to the end to have a uniform length 
+                        if len(Ryhand) < 182: 
+                            Ryhand = [*Ryhand, *np.full(182-len(Ryhand), np.NaN)]
+                        # Cut the array based on user inputs, 
+                        Ryhand = Ryhand[start:stop] # numpy array
+
+                        # pull summary data of the trajectory -- 
+                        trialnumber = np.int16(trial.split("_")[-1]) # value
+                        reward = f[sessfolder]["Reward"]["Value"][trialnumber-1] # value
+                        mode = 0 # aaaaaaaaaaaaaaah 
+                        interval = f[sessfolder]["Interval"][trialnumber-1] # value
+                        # the * before Rxhand & Ryhand unpacks the numpy array into individual values 
+                        righttaps = [*Rxhand, *Ryhand, target, interval, reward, mode, trialnumber, sessnumber]
+                        # for each tap that we collect data on, append it to the list of all rat data
+                        rightratdata.append(righttaps)
+
+                # if the subfolder "L_trajectories" is inside that folder       
+                if "L_trajectories" in f[sessfolder]:
+                    target = f[sessfolder].attrs["Target"] # value
+                    sessnumber = int(sessfolder.split("_")[-1]) # value
+                    for trial in f[sessfolder]["L_trajectories"]:
+                        # Pull the Lxhand data from the h5 file, 
+                        Lxhand = f[sessfolder]["L_trajectories"][trial]["hand"]['x']
+                        # if the trial wasn't tracked, then add NaN to the end to have uniform length. 
+                        if len(Lxhand) < 182:
+                            Lxhand = [*Lxhand, *np.full(182-len(Lxhand), np.NaN)]
+                        # Cut the array based on user inputs, 
+                        Lxhand = Lxhand[start:stop] # numpy array
+
+                        # Pull the Lyhand data from the h5 file
+                        Lyhand = f[sessfolder]["L_trajectories"][trial]["hand"]['y']
+                        # if the trial wasn't tracked, then add NaN to the end to have a uniform length 
+                        if len(Lyhand) < 182: 
+                            Lyhand = [*Lyhand, *np.full(182-len(Lyhand), np.NaN)]
+                        # Cut the array based on user inputs, 
+                        Lyhand = Lyhand[start:stop] # numpy array
+                        
+                        # pull summary data of the trajectory 
+                        trialnumber = np.int32(trial.split("_")[-1]) # value
+                        reward = f[sessfolder]["Reward"]["Value"][trialnumber-1] # value
+                        mode = 0 # aaaaaaaaaaaaaaah 
+                        interval = f[sessfolder]["Interval"][trialnumber-1] # value
+                        # the * before Lxhand & Lyhand unpacks the numpy array into individual values 
+                        lefttaps = [*Lxhand, *Lyhand, target, interval, reward, mode, trialnumber, sessnumber]
+                        # for each tap that we collect data on, append it to the list of all rat data
+                        leftratdata.append(lefttaps) 
+
+        # load them into dataframes with optimized datatypes
+        typedictio = {}
+        #add x vals
+        typedictio.update({f'x_{i+1}':np.float16 for i in range(start,stop)})
+        #add y vals
+        typedictio.update({f'y_{i+1}':np.float16 for i in range(start,stop)})
+        #add catagory columns
+        typedictio.update({i:'category' for i in ['reward','target']})
+        #add integer columns interval is float because of nans
+        typedictio.update({'interval': np.float16, 'n_in_sess':np.int16, 'mode':np.int8})
+        
+        Ldf = (pd.DataFrame(leftratdata, columns = cols)).astype(typedictio)
+        Rdf = (pd.DataFrame(rightratdata, columns = cols)).astype(typedictio)
+        return Ldf, Rdf
+
+
 
     def _make_nsess(self, df):
         ninsess = df['n_in_sess'].to_numpy()
